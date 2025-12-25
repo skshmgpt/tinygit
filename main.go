@@ -99,7 +99,34 @@ func (r *Repo) Add(paths []string) {
 	}
 }
 
-func findRepo() (*Repo, error) {
+func (r *Repo) catFile(fileHash string) {
+	folderName := []byte(fileHash)[:2]
+	fileName := []byte(fileHash)[2:]
+	filePath := filepath.Join(r.basePath, "objects", string(folderName), string(fileName))
+
+	f, err := os.Open(filePath)
+	if err != nil {
+		fmt.Println("Error : ", err)
+		return
+	}
+	defer f.Close()
+
+	zR, err := zlib.NewReader(f)
+	if err != nil {
+		fmt.Println("Error decompressing : ", err)
+		return
+	}
+	defer zR.Close()
+
+	decompressed, err := io.ReadAll(zR)
+	if err != nil {
+		fmt.Println("Error reading : ", err)
+	}
+	fmt.Printf("Decompressed data:\n%s\n", decompressed)
+
+}
+
+func __findRepo() (*Repo, error) {
 	dir, err := os.Getwd()
 	if err != nil {
 		return nil, nil
@@ -120,6 +147,14 @@ func findRepo() (*Repo, error) {
 	}
 }
 
+func GetRepo() *Repo {
+	repo, err := __findRepo()
+	if err != nil {
+		log.Fatal(err)
+	}
+	return repo
+}
+
 func main() {
 	args := os.Args
 	if len(args) <= 1 {
@@ -130,10 +165,10 @@ func main() {
 	case "init":
 		Init()
 	case "add":
-		repo, err := findRepo()
-		if err != nil {
-			log.Fatal(err)
-		}
+		repo := GetRepo()
 		repo.Add(args[2:])
+	case "cat-file":
+		repo := GetRepo()
+		repo.catFile(args[2])
 	}
 }
