@@ -213,17 +213,23 @@ func (r *Repo) createTreeFromIdx() string {
 	return treeHash
 }
 
-func (r *Repo) __getCurrCommit() string {
-	HEAD_file, _ := os.Open(r.HEAD)
-	HEAD_b, _ := io.ReadAll(HEAD_file)
-	HEAD := string(HEAD_b)
+func (r *Repo) __getCurrBranch() string {
+	headData, _ := os.ReadFile(r.HEAD)
+	branchRef := strings.TrimSpace(string(headData))
+	branchRef = strings.TrimPrefix(branchRef, "ref: ")
 
 	// HEAD gives the current branch reference
 	// now we will read what commit current branch is on
 
-	currBranchPath := filepath.Join(r.basePath, HEAD)
+	currBranchPath := filepath.Join(r.basePath, branchRef)
+	return currBranchPath
 
+}
+
+func (r *Repo) __getCurrCommit() string {
 	currCommit := ""
+
+	currBranchPath := r.__getCurrBranch()
 	_, err := os.Stat(currBranchPath)
 	if os.IsNotExist(err) {
 		// no branch exist/ this is first commit -> no parent commit
@@ -233,6 +239,10 @@ func (r *Repo) __getCurrCommit() string {
 		currCommit = string(currBranch_b)
 	}
 	return currCommit
+}
+func (r *Repo) __updateRef(newCommitHash string) {
+	currentBranchPath := r.__getCurrBranch()
+	os.WriteFile(currentBranchPath, []byte(newCommitHash), 0644)
 }
 
 func (r *Repo) Commit(msg string) {
@@ -268,6 +278,7 @@ func (r *Repo) Commit(msg string) {
 	file := commitHashStr[2:]
 	file_path := filepath.Join(r.objDirPath, folder, file)
 	os.WriteFile(file_path, compressedCommit.Bytes(), 0644)
+	r.__updateRef(commitHashStr)
 }
 
 func __findRepo() (*Repo, error) {
