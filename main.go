@@ -86,37 +86,74 @@ func (r *Repo) __writeToIndx(hash, path string) error {
 
 // TODO: implement directory traversal and . resolution
 // TODO: before hashing, check index, add more meta in index, to check if alr added
+
+func (r *Repo) __createBlobFromFile(file string) (hashStr string) {
+	absPath, _ := __getFullPath(file)
+	f, _ := os.Open(absPath)
+	defer f.Close()
+
+	stat, _ := f.Stat()
+	size := stat.Size()
+
+	h := sha1.New()
+	var compressed bytes.Buffer
+	w := zlib.NewWriter(&compressed)
+
+	header := fmt.Sprintf("blob %d\x00", size)
+	h.Write([]byte(header))
+	w.Write([]byte(header))
+
+	io.Copy(io.MultiWriter(h, w), f)
+	w.Close()
+
+	hashStr = fmt.Sprintf("%x", h.Sum(nil))
+	folderName := []byte(hashStr)[:2]
+	fileName := []byte(hashStr)[2:]
+	folder_path := filepath.Join(r.objDirPath, string(folderName))
+	file_path := filepath.Join(r.objDirPath, string(folderName), string(fileName))
+	_ = os.Mkdir(folder_path, 0755)
+	_ = os.WriteFile(file_path, compressed.Bytes(), 0755)
+	return hashStr
+}
+
+func (r *Repo) __getAllFilesinDir(dirPath string) []string {
+	// walk the directory and keep adding files
+	var files []string
+	filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() && (info.Name() == ".git" || info.Name() == ".tinygit") {
+			return filepath.SkipDir
+		}
+		if !info.IsDir() {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files
+}
+
 func (r *Repo) Add(paths []string) {
+	var filesToAdd []string
 	if len(paths) == 1 && paths[0] == "." {
-		// recursively add all changed files
+		filesToAdd = r.__getAllFilesinDir(".")
+	} else {
+		for _, path := range paths {
+			info, err := os.Stat(path)
+			if err != nil {
+				log.Fatal(err)
+			}
+			if info.IsDir() {
+				files := r.__getAllFilesinDir(path)
+				filesToAdd = append(filesToAdd, files...)
+			} else {
+				filesToAdd = append(filesToAdd, path)
+			}
+		}
 	}
-	for _, path := range paths {
-		absPath, _ := __getFullPath(path)
-		f, _ := os.Open(absPath)
-		defer f.Close()
-
-		stat, _ := f.Stat()
-		size := stat.Size()
-
-		h := sha1.New()
-		var compressed bytes.Buffer
-		w := zlib.NewWriter(&compressed)
-
-		header := fmt.Sprintf("blob %d\x00", size)
-		h.Write([]byte(header))
-		w.Write([]byte(header))
-
-		io.Copy(io.MultiWriter(h, w), f)
-		w.Close()
-
-		hashStr := fmt.Sprintf("%x", h.Sum(nil))
-		folderName := []byte(hashStr)[:2]
-		fileName := []byte(hashStr)[2:]
-		folder_path := filepath.Join(r.objDirPath, string(folderName))
-		file_path := filepath.Join(r.objDirPath, string(folderName), string(fileName))
-		_ = os.Mkdir(folder_path, 0755)
-		_ = os.WriteFile(file_path, compressed.Bytes(), 0755)
-
+	for _, path := range filesToAdd {
+		hashStr := r.__createBlobFromFile(path)
 		err := r.__writeToIndx(hashStr, path)
 		if err != nil {
 			log.Fatal(err)
@@ -320,6 +357,7 @@ func main() {
 		fmt.Println("Please specify a subcommand arg")
 		return
 	}
+
 	switch args[1] {
 	case "init":
 		Init()
@@ -332,5 +370,11 @@ func main() {
 	case "commit":
 		repo := GetRepo()
 		repo.Commit(args[3])
+	case "abcd": // Your test case
+		repo := GetRepo()
+		files := repo.__getAllFilesinDir(".")
+		for _, file := range files {
+			fmt.Println(file)
+		}
 	}
 }
