@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -196,12 +197,22 @@ func (r *Repo) __getTreeContent(treeHash string) []string {
 	return lines
 }
 
+func (r *Repo) __shouldIgnore(name string) bool {
+	// Always ignore these
+	ignored := []string{".tinygit", ".git", "tinygit"}
+	if slices.Contains(ignored, name) {
+		return true
+	}
+	// TODO: Read .tinygitignore file and check patterns
+	return false
+}
+
 func (r *Repo) __clearWorkingDir() {
 	repoRoot := filepath.Dir(r.basePath)
 	entries, _ := os.ReadDir(repoRoot)
 
 	for _, entry := range entries {
-		if entry.Name() == ".tinygit" || entry.Name() == ".git" {
+		if r.__shouldIgnore(entry.Name()) {
 			continue
 		}
 		path := filepath.Join(repoRoot, entry.Name())
