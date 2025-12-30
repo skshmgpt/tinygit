@@ -161,28 +161,133 @@ func (r *Repo) Add(paths []string) {
 	}
 }
 
-func (r *Repo) catFile(flag, fileHash string) {
+func (r *Repo) Branch(branchName string) {
+	currCommit := r.__getCurrCommit()
+	if currCommit == "" {
+		log.Fatal("no commits yet")
+	}
+	os.WriteFile(filepath.Join(r.refsDirPath, "heads", branchName), []byte(currCommit), 0644)
+	log.Printf("Created new branch %s", branchName)
+
+}
+
+func (r *Repo) __resolveTargetToCommit(target string) string {
+	branchPath := filepath.Join(r.refsDirPath, "heads", target)
+	if data, err := os.ReadFile(branchPath); err == nil {
+		return strings.TrimSpace(string(data))
+	}
+	return target
+}
+
+func (r *Repo) __resolveTreeHashFromCommitHash(commitHash string) (string, error) {
+	commitBody, err := r.catFile("-p", commitHash)
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(commitBody, "\n")
+	treeLine := lines[0]
+	treeHash := strings.Fields(treeLine)[1]
+	return treeHash, nil
+}
+
+func (r *Repo) __getTreeContent(treeHash string) []string {
+	body, _ := r.catFile("-p", treeHash)
+	lines := strings.Split(strings.TrimSpace(body), "\n")
+	return lines
+}
+
+func (r *Repo) __clearWorkingDir() {
+	repoRoot := filepath.Dir(r.basePath)
+	entries, _ := os.ReadDir(repoRoot)
+
+	for _, entry := range entries {
+		if entry.Name() == ".tinygit" || entry.Name() == ".git" {
+			continue
+		}
+		path := filepath.Join(repoRoot, entry.Name())
+		os.RemoveAll(path)
+	}
+}
+
+func (r *Repo) Checkout(target string) {
+	// commit or branch hash
+	// we need to move HEAD to that ref, and reconstruct the directory
+	commitHash := r.__resolveTargetToCommit(target)
+	treeHash, err := r.__resolveTreeHashFromCommitHash(commitHash)
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+
+	r.__clearWorkingDir()
+
+	treeContent := r.__getTreeContent(treeHash)
+
+	for _, entry := range treeContent {
+		if entry == "" {
+			continue
+		}
+		parts := strings.Split(entry, "\t")
+		if len(parts) != 2 {
+			continue
+		}
+		meta := parts[0]
+		filePath := parts[1]
+		metaParts := strings.Fields(meta)
+		if len(metaParts) < 3 {
+			continue
+		}
+		fileHash := metaParts[2]
+
+		fileContent, err := r.catFile("-p", fileHash)
+		if err != nil {
+			log.Fatal(err)
+			return
+		}
+		repoRoot := filepath.Dir(r.basePath)
+		filePathFromRoot := filepath.Join(repoRoot, filePath)
+
+		os.MkdirAll(filepath.Dir(filePathFromRoot), 0755)
+		os.WriteFile(filePathFromRoot, []byte(fileContent), 0644)
+	}
+	r.__updateHEAD(target, commitHash)
+
+}
+
+func (r *Repo) __updateHEAD(target, commitHash string) {
+	// Check if target is a branch (does refs/heads/<target> exist?)
+	branchPath := filepath.Join(r.refsDirPath, "heads", target)
+
+	if _, err := os.Stat(branchPath); err == nil {
+		// Target is a branch - point HEAD to the branch reference
+		headContent := fmt.Sprintf("ref: refs/heads/%s", target)
+		os.WriteFile(r.HEAD, []byte(headContent), 0644)
+	} else {
+		// Target is a commit hash - detached HEAD state
+		os.WriteFile(r.HEAD, []byte(commitHash), 0644)
+	}
+}
+
+func (r *Repo) catFile(flag, fileHash string) (string, error) {
 	folderName := []byte(fileHash)[:2]
 	fileName := []byte(fileHash)[2:]
 	filePath := filepath.Join(r.basePath, "objects", string(folderName), string(fileName))
 
 	f, err := os.Open(filePath)
 	if err != nil {
-		fmt.Println("Error : ", err)
-		return
+		return "", err
 	}
 	defer f.Close()
 
 	zR, err := zlib.NewReader(f)
 	if err != nil {
-		fmt.Println("Error decompressing : ", err)
-		return
+		return "", err
 	}
 	defer zR.Close()
 
 	decompressed, err := io.ReadAll(zR)
 	if err != nil {
-		fmt.Println("Error reading : ", err)
+		return "", err
 	}
 	content := strings.SplitN(string(decompressed), "\x00", 2)
 	header := content[0]
@@ -192,12 +297,13 @@ func (r *Repo) catFile(flag, fileHash string) {
 
 	switch flag {
 	case "-p":
-		fmt.Printf("\n%s\n", body)
+		return body, nil
 	case "-t":
-		fmt.Printf("\n%s\n", hParts[0])
+		return hParts[0], nil
 	case "-s":
-		fmt.Printf("\n%s\n", hParts[1])
+		return hParts[1], nil
 	}
+	return "", nil
 }
 
 func (r *Repo) createTreeFromIdx() string {
@@ -366,15 +472,19 @@ func main() {
 		repo.Add(args[2:])
 	case "cat-file":
 		repo := GetRepo()
-		repo.catFile(args[2], args[3])
+		res, err := repo.catFile(args[2], args[3])
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("\n%s\n", res)
 	case "commit":
 		repo := GetRepo()
 		repo.Commit(args[3])
-	case "abcd": // Your test case
+	case "branch":
 		repo := GetRepo()
-		files := repo.__getAllFilesinDir(".")
-		for _, file := range files {
-			fmt.Println(file)
-		}
+		repo.Branch(args[3])
+	case "checkout":
+		repo := GetRepo()
+		repo.Checkout(args[2])
 	}
 }
