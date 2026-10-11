@@ -12,4 +12,4 @@ i implemented few git commands like
 - tinygit branch
 - tinygit checkout (this actually matches your working dir to the commit tree !)
 
-Wrote a blog too if you wanna learn a bit about git internals : [check here](https://www.skshmgpt.tech/blog/git-internals)
+Wrote a blog too if you wanna learn a bit about git internals : [check here](https://www.skshmgpt.com/blog/git-internals)
